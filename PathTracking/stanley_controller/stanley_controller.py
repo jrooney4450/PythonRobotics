@@ -12,22 +12,13 @@ Ref:
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import time
 sys.path.append("../../PathPlanning/CubicSpline/")
 
 try:
     import cubic_spline_planner
 except:
     raise
-
-
-k = 0.5  # control gain
-Kp = 1.0  # speed proportional gain
-dt = 0.1  # [s] time difference
-L = 2.9  # [m] Wheel base of vehicle
-max_steer = np.radians(30.0)  # [rad] max steering angle
-
-show_animation = True
-
 
 class State(object):
     """
@@ -76,7 +67,7 @@ def pid_control(target, current):
     return Kp * (target - current)
 
 
-def stanley_control(state, cx, cy, cyaw, last_target_idx):
+def stanley_control(state, cx, cy, cyaw, idx_now):
     """
     Stanley steering control.
 
@@ -84,22 +75,23 @@ def stanley_control(state, cx, cy, cyaw, last_target_idx):
     :param cx: ([float])
     :param cy: ([float])
     :param cyaw: ([float])
-    :param last_target_idx: (int)
+    :param idx_now: (int)
     :return: (float, int)
     """
-    current_target_idx, error_front_axle = calc_target_index(state, cx, cy)
+    # idx_next, e_ct = calc_target_index(state, cx, cy)
+    idx_next, e_ct, sta = calc_next_index(state, cx, cy, idx_now)
 
-    if last_target_idx >= current_target_idx:
-        current_target_idx = last_target_idx
+    # if idx_now >= idx_next:
+    #     idx_next = idx_now
 
     # theta_e corrects the heading error
-    theta_e = normalize_angle(cyaw[current_target_idx] - state.yaw)
+    theta_e = normalize_angle(cyaw[idx_next] - state.yaw)
     # theta_d corrects the cross track error
-    theta_d = np.arctan2(k * error_front_axle, state.v)
+    theta_d = np.arctan2(k * e_ct, state.v)
     # Steering control
     delta = theta_e + theta_d
 
-    return delta, current_target_idx
+    return delta, idx_next, e_ct, sta
 
 
 def normalize_angle(angle):
@@ -135,83 +127,202 @@ def calc_target_index(state, cx, cy):
     dx = [fx - icx for icx in cx]
     dy = [fy - icy for icy in cy]
     d = np.hypot(dx, dy)
-    target_idx = np.argmin(d)
+    idx_now = np.argmin(d)
 
     # Project RMS error onto front axle vector
     front_axle_vec = [-np.cos(state.yaw + np.pi / 2),
                       -np.sin(state.yaw + np.pi / 2)]
-    error_front_axle = np.dot([dx[target_idx], dy[target_idx]], front_axle_vec)
+    e_ct = np.dot([dx[idx_now], dy[idx_now]], front_axle_vec)
 
-    return target_idx, error_front_axle
+    return idx_now, e_ct
+
+def calc_next_index(state, cx, cy, idx_now):
+    """
+    Compute next index in the trajectory.
+
+    :param state: (State object)
+    :param cx: [float]
+    :param cy: [float]
+    :return: next_idx, ect (int, float)
+    """
+    # Calc front axle position
+    fx = state.x + L * np.cos(state.yaw)
+    fy = state.y + L * np.sin(state.yaw)
+
+    idx_next = idx_now + 1
+    r_T = np.array([cx[idx_now], cy[idx_now]]) # desired position vector
+    r = np.array([fx, fy])
+
+    sta_vect = np.array([cx[idx_next] - cx[idx_now], cy[idx_next] - cy[idx_now]]) # station vector
+    sta = np.linalg.norm(sta_vect) # magnitude of the station vector
+    a = sta_vect / np.linalg.norm(sta) # tangent unit vector
+    normal = np.empty_like(a)
+    normal[0] = -a[1]
+    normal[1] = a[0]
+    normal = normal / np.linalg.norm(normal)
+    print('The tangent vector is: {}'.format(a))
+    print('The normal vector is: {}'.format(normal))
+
+    # Eq. 9 in the following paper:
+    # http://ai.stanford.edu/~gabeh/papers/GNC08_QuadTraj.pdf
+    e_ct = np.matmul((r_T - r), normal) # cross-track position error
+
+    b = np.array([fx - cx[idx_next], fy - cy[idx_next]]) # vector from next index point to current robot state
+    print('The next index to state vector is: {}'.format(b))
+
+    angle = np.arccos(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+    print('The angle is: {}'.format(angle))
+    if angle < (np.pi/2):
+        print("incremented the counter")
+        idx_now += 1
+
+    print('idx_next: {}'.format(idx_next))
+    print('cross-track error: {}'.format(e_ct))
+
+    return idx_now, e_ct, sta
 
 
 def main():
     """Plot an example of Stanley steering control on a cubic spline."""
-    #  target course
-    ax = [0.0, 100.0, 100.0, 50.0, 60.0]
-    ay = [0.0, 0.0, -30.0, -20.0, 0.0]
+    # #  target course
+    # state = State(x=-0.0, y=5.0, yaw=np.radians(20.0), v=0.0)
+    # ax = [0.0, 100.0, 100.0, 50.0, 60.0]
+    # ay = [0.0, 0.0, -30.0, -20.0, 0.0]
+
+    # # Debug course
+    # state = State(x=0.0, y=-1.0, yaw=0.0, v=0.0)
+    # ax = [0.0, 20.0]
+    # ay = [0.0,  0.0]
+
+    # Lane Change Course
+    state = State(x=0.0, y=0.0, yaw=0.0, v=0.0)
+    ax = [0.0, 29.0, 30.0, 40.0, 41.0, 100.0]
+    ay = [0.0,  0.0,  0.0,  3.0,  3.0,   3.0]
+
+    # # Figure 8 Course
+    # state = State(x=0.0, y=1.0, yaw=0.0, v=0.0)
+    # r = 65.0
+    # ax = [0.0, r, 0.0, -r, 0.0,  r,  0.0, -r, 0.0]
+    # ay = [0.0, r, 2*r,  r, 0.0, -r, -2*r, -r, 0.0]
+
+    # # Road Path 
+    # state = State(x=0.0, y=1.0, yaw=0.0, v=0.0)
+    # ax = [0.0, 150.0,  100.0,   50.0,    0.0, -75.0, -125.0, -125.0, -100.0,   50.0,  200.0,  250.0, 300.0, 225.0, 200.0, 150.0,  50.0, -125.0, -100.0, 0.0]
+    # ay = [0.0, -50.0, -135.0, -110.0, -125.0, -35.0,  -35.0, -150.0, -190.0, -190.0, -190.0, -150.0,  60.0, 130.0, 150.0,  60.0, 110.0,  120.0,    0.0, 0.0]
 
     cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
-        ax, ay, ds=0.1)
+        ax, ay, ds=5)
 
-    target_speed = 30.0 / 3.6  # [m/s]
+    # target_speed = 30.0 / 3.6  # [m/s]
+    # target_speed = 5.0 # [m/s]
 
-    max_simulation_time = 100.0
+    max_simulation_time = 100.0    
 
-    # Initial state
-    state = State(x=-0.0, y=5.0, yaw=np.radians(20.0), v=0.0)
-
-    last_idx = len(cx) - 1
+    idx_last = len(cx) - 1
     time = 0.0
     x = [state.x]
     y = [state.y]
     yaw = [state.yaw]
     v = [state.v]
     t = [0.0]
-    target_idx, _ = calc_target_index(state, cx, cy)
+    # idx_now, _ = calc_target_index(state, cx, cy)
+    idx_now, _, _ = calc_next_index(state, cx, cy, 0) # start at index 0 
 
-    while max_simulation_time >= time and last_idx > target_idx:
+    # print(cx[1])
+    e_ct_arr = []
+    station = []
+    sta_cum = 0.
+
+    while max_simulation_time >= time and idx_last > idx_now:
         ai = pid_control(target_speed, state.v)
-        di, target_idx = stanley_control(state, cx, cy, cyaw, target_idx)
+        di, idx_now, e_ct, sta = stanley_control(state, cx, cy, cyaw, idx_now)
         state.update(ai, di)
 
         time += dt
 
+        sta_cum += sta
+        station.append(sta_cum)
+        e_ct_arr.append(e_ct)
         x.append(state.x)
         y.append(state.y)
         yaw.append(state.yaw)
         v.append(state.v)
         t.append(time)
 
-        if show_animation:  # pragma: no cover
-            plt.cla()
-            plt.plot(cx, cy, ".r", label="course")
-            plt.plot(x, y, "-b", label="trajectory")
-            plt.plot(cx[target_idx], cy[target_idx], "xg", label="target")
-            plt.axis("equal")
-            plt.grid(True)
-            plt.title("Speed[km/h]:" + str(state.v * 3.6)[:4])
-            plt.pause(0.001)
+        # if show_animation:  # pragma: no cover
+        #     plt.cla()
+        #     plt.plot(cx, cy, ".r")
+        #     # plt.plot(cx, cy, ".r", label="course")
+        #     plt.plot(x, y, "-b")
+        #     # plt.plot(x, y, "-b", label="trajectory")
+        #     plt.plot(cx[idx_now], cy[idx_now], "xg", label="target")
+        #     plt.axis("equal")
+        #     plt.grid(True)
+        #     plt.title("Speed[km/h]:" + str(state.v * 3.6)[:4])
+        #     plt.pause(0.001)
 
     # Test
-    assert last_idx >= target_idx, "Cannot reach goal"
+    assert idx_last >= idx_now, "Cannot reach goal"
 
     if show_animation:  # pragma: no cover
-        plt.plot(cx, cy, ".r", label="course")
+        # plt.subplots(1)
+        # plt.plot(t, [iv * 3.6 for iv in v], "-r")
+        # plt.xlabel("Time[s]")
+        # plt.ylabel("Speed[km/h]")
+        # plt.grid(True)
+
+        # Plot errors
+        plt.figure(0)
+        plt.plot(station, e_ct_arr, c=color, label="k={}".format(k))
+        plt.xlabel("Station[m]")
+        plt.ylabel("Cross-Track Error[m]")
+        plt.title("Station vs. Cross-Track Error")
+        plt.grid(True)
+        plt.legend(loc="best")
+
+        # Plot course and car path
+        plt.figure()
+        plt.plot(cx, cy, "-r", label="course")
+        # plt.scatter(cx, cy, c="k", markersize=0.1)
         plt.plot(x, y, "-b", label="trajectory")
         plt.legend()
         plt.xlabel("x[m]")
         plt.ylabel("y[m]")
+        plt.title("Course with gain of k={}".format(k))
         plt.axis("equal")
         plt.grid(True)
 
-        plt.subplots(1)
-        plt.plot(t, [iv * 3.6 for iv in v], "-r")
-        plt.xlabel("Time[s]")
-        plt.ylabel("Speed[km/h]")
-        plt.grid(True)
-        plt.show()
-
+    return 0
 
 if __name__ == '__main__':
+    Kp = 1.0  # speed proportional gain
+    dt = 0.1  # [s] time difference
+    L = 2.9  # [m] Wheel base of vehicle
+    max_steer = np.radians(30.0)  # [rad] max steering angle
+    show_animation = True
+
+    target_speed = 5.0 # [m/s]
+    
+    k = 0.5  # control gain
+    color = 'red'
     main()
+
+    k = 1
+    color = 'blue'
+    main()
+
+    k = 2
+    color = 'green'
+    main()
+
+    k = 4
+    color = 'black'
+    main()
+
+    k = 8
+    color = 'purple'
+    main()
+
+    plt.legend(loc="best")
+    plt.show()
