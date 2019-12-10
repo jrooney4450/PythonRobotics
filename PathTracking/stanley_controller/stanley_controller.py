@@ -56,6 +56,18 @@ class State(object):
         self.v += acceleration * dt
 
 
+def normalize(a):
+    """
+    Return the normal unit vector.
+
+    param a: vector ([float])
+    """
+    normal = np.empty_like(a)
+    normal[0] = -a[1]
+    normal[1] = a[0]
+    normal = normal / np.linalg.norm(normal)
+    return normal
+
 def pid_control(target, current):
     """
     Proportional control for the speed.
@@ -167,10 +179,7 @@ def calc_next_index(state, cx, cy, idx_now, sta_before):
     # print('The station increment is: {}'.format(sta_inc))
     sta_before = sta
 
-    normal = np.empty_like(a)
-    normal[0] = -a[1]
-    normal[1] = a[0]
-    normal = normal / np.linalg.norm(normal)
+    normal = normalize(a)
     # print('The tangent vector is: {}'.format(a))
     # print('The normal vector is: {}'.format(normal))
 
@@ -194,42 +203,41 @@ def calc_next_index(state, cx, cy, idx_now, sta_before):
     return idx_now, e_ct, sta_inc, sta_before
 
 
+def getLaneChange():
+    ax = [0.0, 29.0, 30.0, 40.0, 41.0, 100.0]
+    ay = [0.0,  0.0,  0.0,  3.0,  3.0,   3.0]
+    return ax, ay, 'Lane Change Course'
+
+
+def getFigureEight():
+    r = 65.0
+    ax = [0.0,     0.707*r, r,     0.707*r, 0.0,    -0.707*r, -r,    -0.707*r, 0.0,\
+              0.707*r,  r,      0.707*r,  0.0,     -0.707*r, -r,     -0.707*r, 0.0]
+    ay = [0.0, r - 0.707*r, r, r + 0.707*r, 2*r, r + 0.707*r,  r, r - 0.707*r, 0.0,\
+         -r + 0.707*r, -r, -r - 0.707*r, -2*r, -r - 0.707*r, -r, -r + 0.707*r, 0.0]
+    return ax, ay, 'Figure Eight Course'
+
+def getRoadPath():
+    ax = [0.0, 150.0,  100.0,   50.0,    0.0, -75.0, -125.0, -125.0, -100.0,   50.0,\
+          200.0,  250.0, 300.0, 225.0, 200.0, 150.0,  50.0, -125.0, -100.0, 0.0]
+    ay = [0.0, -50.0, -135.0, -110.0, -125.0, -35.0,  -35.0, -150.0, -190.0, -190.0,\
+         -190.0, -150.0,  60.0, 130.0, 150.0,  60.0, 110.0,  120.0,    0.0, 0.0]
+    return ax, ay, 'Road Course'
+
 def main():
     """Plot an example of Stanley steering control on a cubic spline."""
     print("Starting main loop with k={}".format(k))
-    # #  target course
-    # state = State(x=-0.0, y=5.0, yaw=np.radians(20.0), v=0.0)
-    # ax = [0.0, 100.0, 100.0, 50.0, 60.0]
-    # ay = [0.0, 0.0, -30.0, -20.0, 0.0]
+    state = State(x=0.0, y=0.5, yaw=0.0, v=0.0)
 
-    # # Debug course
-    # state = State(x=0.0, y=-1.0, yaw=0.0, v=0.0)
-    # ax = [0.0, 20.0]
-    # ay = [0.0,  0.0]
-
-    # # Lane Change Course
-    # state = State(x=0.0, y=0.0, yaw=0.0, v=0.0)
-    # ax = [0.0, 29.0, 30.0, 40.0, 41.0, 100.0]
-    # ay = [0.0,  0.0,  0.0,  3.0,  3.0,   3.0]
-
-    # Figure 8 Course
-    state = State(x=0.0, y=1.0, yaw=0.0, v=0.0)
-    r = 65.0
-    ax = [0.0, r, 0.0, -r, 0.0,  r,  0.0, -r, 0.0]
-    ay = [0.0, r, 2*r,  r, 0.0, -r, -2*r, -r, 0.0]
-
-    # # Road Path 
-    # state = State(x=0.0, y=1.0, yaw=0.0, v=0.0)
-    # ax = [0.0, 150.0,  100.0,   50.0,    0.0, -75.0, -125.0, -125.0, -100.0,   50.0,  200.0,  250.0, 300.0, 225.0, 200.0, 150.0,  50.0, -125.0, -100.0, 0.0]
-    # ay = [0.0, -50.0, -135.0, -110.0, -125.0, -35.0,  -35.0, -150.0, -190.0, -190.0, -190.0, -150.0,  60.0, 130.0, 150.0,  60.0, 110.0,  120.0,    0.0, 0.0]
+    # Chose path
+    ax, ay, course_type = getLaneChange()
+    # ax, ay, course_type = getFigureEight()
+    # ax, ay, course_type = getRoadPath()
 
     cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=ds)
 
-    # target_speed = 30.0 / 3.6  # [m/s]
-    # target_speed = 5.0 # [m/s]
-
-    max_simulation_time = 100.0    
+    max_simulation_time = 200.0
 
     idx_last = len(cx) - 1
     time = 0.0
@@ -243,9 +251,6 @@ def main():
     sta_cum = 0.
     sta_before = 0.
     idx_now = 0
-
-    # idx_now, _ = calc_target_index(state, cx, cy)
-    # idx_now, _, _, _ = calc_next_index(state, cx, cy, idx_now, sta_before) # start at index 0 
 
     while max_simulation_time >= time and idx_last > idx_now:
         ai = pid_control(target_speed, state.v)
@@ -279,65 +284,66 @@ def main():
     assert idx_last >= idx_now, "Cannot reach goal"
 
     if show_animation:  # pragma: no cover
-        # plt.subplots(1)
-        # plt.plot(t, [iv * 3.6 for iv in v], "-r")
-        # plt.xlabel("Time[s]")
-        # plt.ylabel("Speed[km/h]")
-        # plt.grid(True)
+        # Plot course and car path
+        plt.figure(1)
+        plt.plot(cx, cy, "-r")
+        # plt.scatter(cx, cy, c="k", markersize=0.1)
+        # plt.plot(x, y, "-b")
+        plt.legend()
+        plt.xlabel("x[m]")
+        plt.ylabel("y[m]")
+        plt.title("{}".format(course_type))
+        plt.axis("equal")
+        plt.grid(True)
 
         # Plot errors
         plt.figure(0)
         plt.plot(station, e_ct_arr, c=color, label="k={}".format(k))
         plt.xlabel("Station[m]")
         plt.ylabel("Cross-Track Error[m]")
-        plt.title("Station vs. Cross-Track Error at {} [m/s]".format(target_speed))
+        plt.title("Stanley at {}m/s on {}".format(target_speed, course_type))
         plt.grid(True)
-        plt.legend(loc="best")
-
-        # # Plot course and car path
-        # plt.figure()
-        # plt.plot(cx, cy, "-r", label="course")
-        # # plt.scatter(cx, cy, c="k", markersize=0.1)
-        # plt.plot(x, y, "-b", label="trajectory")
-        # plt.legend()
-        # plt.xlabel("x[m]")
-        # plt.ylabel("y[m]")
-        # plt.title("Course with gain of k={}".format(k))
-        # plt.axis("equal")
-        # plt.grid(True)
+        # plt.legend(loc="best")
 
     return 0
 
 if __name__ == '__main__':
     Kp = 1.0  # speed proportional gain
-    factor = 10
+    factor = 15
     dt = 0.1 / factor  # [s] time difference
     L = 2.9  # [m] Wheel base of vehicle
     max_steer = np.radians(30.0)  # [rad] max steering angle
     show_animation = True
-    ds = 1 # for the cublic spline planner
+    ds = 5 # for the cublic spline planner
 
-    target_speed = 10.0 # [m/s]
+    target_speed = 20.0 # [m/s]
     
-    k = 0.5  # control gain
-    color = 'red'
-    main()
-
-    k = 1
-    color = 'blue'
-    main()
-
-    k = 2
-    color = 'green'
-    main()
-
-    k = 4
+    k = 1.0  # control gain
     color = 'black'
     main()
 
-    k = 8
-    color = 'purple'
+    k = 2.0
+    color = 'blue'
+    main()
+
+    k = 4.0
+    color = 'cyan'
+    main()
+
+    k = 6.0
+    color = 'limegreen'
+    main()
+
+    k = 8.0
+    color = 'pink'
+    main()
+
+    k = 10.0
+    color = 'red'
     main()
 
     plt.legend(loc="best")
+    plt.savefig('images/stanley_lane_change_{}.png'.format(target_speed))
+    # plt.savefig('images/stanley_figure_eight_{}.png'.format(target_speed))
+    # plt.savefig('images/stanley_road_{}.png'.format(target_speed))
     plt.show()
