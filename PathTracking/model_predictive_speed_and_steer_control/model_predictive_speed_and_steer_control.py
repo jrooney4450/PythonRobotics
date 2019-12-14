@@ -17,47 +17,6 @@ try:
 except:
     raise
 
-
-NX = 4  # x = x, y, v, yaw
-NU = 2  # a = [accel, steer]
-T = 5  # horizon length
-
-# mpc parameters
-R = np.diag([0.01, 0.01])  # input cost matrix
-Rd = np.diag([0.01, 1.0])  # input difference cost matrix
-Q = np.diag([1.0, 1.0, 0.5, 0.5])  # state cost matrix
-Qf = Q  # state final matrix
-GOAL_DIS = 1.5  # goal distance
-STOP_SPEED = 0.5 / 3.6  # stop speed
-MAX_TIME = 500.0  # max simulation time
-
-# iterative paramter
-MAX_ITER = 3  # Max iteration
-DU_TH = 0.1  # iteration finish param
-
-TARGET_SPEED = 10.0 / 3.6  # [m/s] target speed
-N_IND_SEARCH = 10  # Search index number
-
-DT = 0.2  # [s] time tick
-
-# Vehicle parameters
-LENGTH = 4.5  # [m]
-WIDTH = 2.0  # [m]
-BACKTOWHEEL = 1.0  # [m]
-WHEEL_LEN = 0.3  # [m]
-WHEEL_WIDTH = 0.2  # [m]
-TREAD = 0.7  # [m]
-WB = 2.5  # [m]
-
-MAX_STEER = np.deg2rad(45.0)  # maximum steering angle [rad]
-MAX_DSTEER = np.deg2rad(30.0)  # maximum steering speed [rad/s]
-MAX_SPEED = 55.0 / 3.6  # maximum speed [m/s]
-MIN_SPEED = -20.0 / 3.6  # minimum speed [m/s]
-MAX_ACCEL = 1.0  # maximum accel [m/ss]
-
-show_animation = True
-
-
 class State:
     """
     vehicle state class
@@ -195,6 +154,7 @@ def calc_nearest_index(state, cx, cy, cyaw, pind):
     d = [idx ** 2 + idy ** 2 for (idx, idy) in zip(dx, dy)]
 
     mind = min(d)
+    print('mind is: {}'.format(mind))
 
     ind = d.index(mind) + pind
 
@@ -209,6 +169,75 @@ def calc_nearest_index(state, cx, cy, cyaw, pind):
 
     return ind, mind
 
+def normalize(a):
+    """
+    Return the n unit vector.
+
+    param a: vector ([float])
+    """
+    n = np.empty_like(a)
+    n[0] = -a[1]
+    n[1] = a[0]
+    n = n / np.linalg.norm(n)
+    return n
+
+def calc_error(state, cx, cy, idx_now, sta_before):
+    """
+    Compute next index in the trajectory. Main functional changes are here!
+
+    :param state: (State object)
+    :param cx: [float]
+    :param cy: [float]
+    :param idx_now: [int]
+    :param sta_before: [float]
+    :return: next_idx, e_ct (cross-track error), sta_inc 
+        (station increment), sta_before (station before) [int, float, float, float]
+    """
+    # TODO: idx_next goes out of possible array at end of course due to
+    # car's ability to go in reverse
+
+    # Calculate front axle position and use for index incrementing
+    fx = state.x + LENGTH * np.cos(state.yaw)
+    fy = state.y + LENGTH * np.sin(state.yaw)
+
+    idx_next = idx_now + 1
+    r_T = np.array([cx[idx_now], cy[idx_now]]) # desired position vector
+    r = np.array([fx, fy])
+
+    # Course vector, or vector along current segment of the course
+    course_vect = np.array([cx[idx_next] - cx[idx_now], cy[idx_next] - cy[idx_now]])
+    sta = np.linalg.norm(course_vect) # Magnitude of the course vector
+    t = course_vect / np.linalg.norm(sta) # Tangent unit vector
+
+    # Calculate station - the projection of the vehicle position along the course segment
+    sta = np.dot((r - r_T), t)
+
+    # Calculate station increment - the amount of station increased per function call
+    sta_inc = sta - sta_before
+    if sta_inc < 0:
+        sta_inc += dl
+    
+    # Store the amount of station for use upon consequtive function call
+    sta_before = sta
+
+    # Find the n unit vector
+    n = normalize(t)
+
+    # Find cross-track position error - Eq. 9 in the following paper:
+    # http://ai.stanford.edu/~gabeh/papers/GNC08_QuadTraj.pdf
+    e_ct = np.dot((r_T - r), n)
+
+    # Find vector from next index point to state of robot front axle
+    b = np.array([fx - cx[idx_next], fy - cy[idx_next]]) 
+
+    # Find angle between robot state
+    angle = np.arccos(np.dot(t, b) / (np.linalg.norm(t) * np.linalg.norm(b)))
+
+    # The waypoint will increment once the vehicle passes the n vector
+    if angle < (np.pi/2):
+        idx_now += 1
+
+    return e_ct, sta_inc, sta_before
 
 def predict_motion(x0, oa, od, xref):
     xbar = xref * 0.0
@@ -363,7 +392,7 @@ def check_goal(state, goal, tind, nind):
     return False
 
 
-def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
+def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state, course_name):
     """
     Simulation
 
@@ -400,9 +429,18 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
 
     cyaw = smooth_yaw(cyaw)
 
+    sta_before = 0. 
+    e_ct_arr = []
+    station = []
+    sta_cum = 0.
+    sta_before = 0. # assume car starts at 0
+
     while MAX_TIME >= time:
         xref, target_ind, dref = calc_ref_trajectory(
             state, cx, cy, cyaw, ck, sp, dl, target_ind)
+
+        if show_plots:
+            e_ct, sta, sta_before = calc_error(state, cx, cy, target_ind, sta_before)
 
         x0 = [state.x, state.y, state.v, state.yaw]  # current state
 
@@ -414,6 +452,12 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
 
         state = update_state(state, ai, di)
         time = time + DT
+
+        # Justin's adds
+        if show_plots:
+            sta_cum += sta
+            station.append(sta_cum)
+            e_ct_arr.append(e_ct)
 
         x.append(state.x)
         y.append(state.y)
@@ -441,6 +485,15 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
             plt.title("Time[s]:" + str(round(time, 2))
                       + ", speed[km/h]:" + str(round(state.v * 3.6, 2)))
             plt.pause(0.0001)
+
+    if show_plots:
+        # Plot relevant errors
+        plt.subplots()
+        plt.plot(station, e_ct_arr, c=color, label="k={}".format(k))
+        plt.xlabel("Station[m]")
+        plt.ylabel("Cross-Track Error[m]")
+        plt.title("MPC at {}m/s on {}".format(TARGET_SPEED, course_name))
+        plt.grid(True)
 
     return t, x, y, yaw, v, d, a
 
@@ -545,28 +598,56 @@ def get_switch_back_course(dl):
 
     return cx, cy, cyaw, ck
 
+def getLaneChange():
+    # ax = [0.0, 29.0, 30.0, 40.0, 41.0, 100.0] # longer course
+    ax = [0.0, 1.0, 11.0, 21.0, 22.0, 25.0] # shorter course
+    ay = [0.0, 0.0,  0.0,  3.0,  3.0,  3.0]
+    return ax, ay, 'Lane Change Course'
+
+
+def getFigureEight():
+    r = 65.0
+    ax = [0.0,     0.707*r, r,     0.707*r, 0.0,    -0.707*r, -r,    -0.707*r, 0.0,\
+              0.707*r,  r,      0.707*r,  0.0,     -0.707*r, -r,     -0.707*r, 0.0]
+    ay = [0.0, r - 0.707*r, r, r + 0.707*r, 2*r, r + 0.707*r,  r, r - 0.707*r, 0.0,\
+         -r + 0.707*r, -r, -r - 0.707*r, -2*r, -r - 0.707*r, -r, -r + 0.707*r, 0.0]
+    return ax, ay, 'Figure Eight Course'
+
+def getRoadPath():
+    ax = [0.0, 150.0,  100.0,   50.0,    0.0, -75.0, -125.0, -125.0, -100.0,   50.0,\
+          200.0,  250.0, 300.0, 225.0, 200.0, 150.0,  50.0, -125.0, -100.0, 0.0]
+    ay = [0.0, -50.0, -135.0, -110.0, -125.0, -35.0,  -35.0, -150.0, -190.0, -190.0,\
+         -190.0, -150.0,  60.0, 130.0, 150.0,  60.0, 110.0,  120.0,    0.0, 0.0]
+    return ax, ay, 'Road Course'
 
 def main():
     print(__file__ + " start!!")
 
-    dl = 1.0  # course tick
     # cx, cy, cyaw, ck = get_straight_course(dl)
     # cx, cy, cyaw, ck = get_straight_course2(dl)
     # cx, cy, cyaw, ck = get_straight_course3(dl)
     # cx, cy, cyaw, ck = get_forward_course(dl)
-    cx, cy, cyaw, ck = get_switch_back_course(dl)
+    # cx, cy, cyaw, ck = get_switch_back_course(dl)
+    # cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(cx, cy, ds=dl)
+
+    ax, ay, course_name = getLaneChange()
+    # ax, ay, course_name = getFigureEight()
+    # ax, ay, course_name = getRoadPath()
+
+    cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(ax, ay, ds=dl)
 
     sp = calc_speed_profile(cx, cy, cyaw, TARGET_SPEED)
 
     initial_state = State(x=cx[0], y=cy[0], yaw=cyaw[0], v=0.0)
 
     t, x, y, yaw, v, d, a = do_simulation(
-        cx, cy, cyaw, ck, sp, dl, initial_state)
+        cx, cy, cyaw, ck, sp, dl, initial_state, course_name)
 
-    if show_animation:  # pragma: no cover
+    if show_plots:  # pragma: no cover
         plt.close("all")
         plt.subplots()
-        plt.plot(cx, cy, "-r", label="spline")
+        # plt.plot(cx, cy, "-r", label="spline")
+        plt.scatter(cx, cy, "r", s=0.9, label="spline")
         plt.plot(x, y, "-g", label="tracking")
         plt.grid(True)
         plt.axis("equal")
@@ -596,7 +677,7 @@ def main2():
     t, x, y, yaw, v, d, a = do_simulation(
         cx, cy, cyaw, ck, sp, dl, initial_state)
 
-    if show_animation:  # pragma: no cover
+    if show_plots:  # pragma: no cover
         plt.close("all")
         plt.subplots()
         plt.plot(cx, cy, "-r", label="spline")
@@ -617,5 +698,48 @@ def main2():
 
 
 if __name__ == '__main__':
+    NX = 4  # x = x, y, v, yaw
+    NU = 2  # a = [accel, steer]
+    T = 5  # horizon length
+
+    # mpc parameters
+    R = np.diag([0.01, 0.01])  # input cost matrix
+    Rd = np.diag([0.01, 1.0])  # input difference cost matrix
+    Q = np.diag([1.0, 1.0, 0.5, 0.5])  # state cost matrix
+    Qf = Q  # state final matrix
+    GOAL_DIS = 1.5  # goal distance
+    STOP_SPEED = 0.5 / 3.6  # stop speed
+    MAX_TIME = 500.0  # max simulation time
+
+    # iterative paramter
+    MAX_ITER = 3  # Max iteration
+    DU_TH = 0.1  # iteration finish param
+
+    # TARGET_SPEED = 10.0 / 3.6  # [m/s] target speed
+    TARGET_SPEED = 20.0 # [m/s]
+    N_IND_SEARCH = 10  # Search index number
+
+    DT = 0.2  # [s] time tick
+
+    # Vehicle parameters
+    LENGTH = 4.5  # [m]
+    WIDTH = 2.0  # [m]
+    BACKTOWHEEL = 1.0  # [m]
+    WHEEL_LEN = 0.3  # [m]
+    WHEEL_WIDTH = 0.2  # [m]
+    TREAD = 0.7  # [m]
+    WB = 2.5  # [m]
+
+    MAX_STEER = np.deg2rad(45.0)  # maximum steering angle [rad]
+    MAX_DSTEER = np.deg2rad(30.0)  # maximum steering speed [rad/s]
+    MAX_SPEED = 55.0 / 3.6  # maximum speed [m/s]
+    MIN_SPEED = -20.0 / 3.6  # minimum speed [m/s]
+    MAX_ACCEL = 1.0  # maximum accel [m/ss]
+
+    show_animation = True
+    show_plots = False
+
+    dl = 1.0 # course tick
+
     main()
     # main2()

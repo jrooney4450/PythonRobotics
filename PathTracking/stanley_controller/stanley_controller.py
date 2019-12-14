@@ -86,7 +86,8 @@ def stanley_control(state, cx, cy, cyaw, idx_now, sta_before):
     :param cy: ([float])
     :param cyaw: ([float])
     :param idx_now: (int)
-    :return: (float, int)
+    :param sta_before: (float)
+    :return: (float, int, float, float, float)
     """
     idx_next, e_ct, sta, sta_before = calc_next_index(state, cx, cy, idx_now, sta_before)
 
@@ -116,12 +117,15 @@ def normalize_angle(angle):
 
 def calc_next_index(state, cx, cy, idx_now, sta_before):
     """
-    Compute next index in the trajectory.
+    Compute next index in the trajectory. Main functional changes are here!
 
     :param state: (State object)
     :param cx: [float]
     :param cy: [float]
-    :return: next_idx, e_ct (cross-track error), sta (station) [int, float, float]
+    :param idx_now: [int]
+    :param sta_before: [float]
+    :return: next_idx, e_ct (cross-track error), sta_inc 
+        (station increment), sta_before (station before) [int, float, float, float]
     """
     # Calculate front axle position and use for index incrementing
     fx = state.x + L * np.cos(state.yaw)
@@ -184,6 +188,9 @@ def getRoadPath():
           200.0,  250.0, 300.0, 225.0, 200.0, 150.0,  50.0, -125.0, -100.0, 0.0]
     ay = [0.0, -50.0, -135.0, -110.0, -125.0, -35.0,  -35.0, -150.0, -190.0, -190.0,\
          -190.0, -150.0,  60.0, 130.0, 150.0,  60.0, 110.0,  120.0,    0.0, 0.0]
+
+    plt.figure(1)
+    plt.scatter(ax, ay, marker='x', c='k')
     return ax, ay, 'Road Course'
 
 def main():
@@ -192,12 +199,15 @@ def main():
     state = State(x=0.0, y=0.5, yaw=0.0, v=0.0)
 
     ### PICK PATH HERE! ###
-    ax, ay, course_type = getLaneChange()
+    # ax, ay, course_type = getLaneChange()
     # ax, ay, course_type = getFigureEight()
-    # ax, ay, course_type = getRoadPath()
+    ax, ay, course_type = getRoadPath()
 
     cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=ds)
+
+    plt.figure(1)
+    plt.scatter(cx, cy, c='r', s=0.9)
 
     max_simulation_time = 200.0
 
@@ -243,17 +253,19 @@ def main():
     assert idx_last >= idx_now, "Cannot reach goal"
 
     if show_plots:
-        # Plot course and car path
-        plt.figure(1)
-        plt.plot(cx, cy, "-r", label='course')
-        plt.scatter(cx, cy, c="k", s=0.8)
-        plt.plot(x, y, "-b", label='trajectory')
-        plt.legend()
-        plt.xlabel("x[m]")
-        plt.ylabel("y[m]")
-        plt.title("{}".format(course_type))
-        plt.axis("equal")
-        plt.grid(True)
+        # # Plot course and car path
+        # plt.figure(1)
+        # # plt.plot(cx, cy, "-r", label='course')
+        # # plt.scatter(ax, ay, c="k", marker='x', s=0.9)
+        # # plt.plot(x, y, "-b", label='trajectory')
+        # plt.legend()
+        # plt.xlabel("x[m]")
+        # plt.ylabel("y[m]")
+        # plt.title("{}".format(course_type))
+        # plt.axis("equal")
+        # plt.grid(True)
+
+
 
         # Plot relevant errors
         plt.figure(0)
@@ -272,7 +284,7 @@ if __name__ == '__main__':
     max_steer = np.radians(30.0)  # [rad] max steering angle
     show_animation = False        # Turn on animation
     show_plots = True             # Turn on course and error plots
-    ds = 1                        # [m] Segment length for the cublic spline planner
+    ds = 5                        # [m] Segment length for the cublic spline planner
 
     target_speed = 20.0           # [m/s] Speed reference
     
@@ -281,25 +293,25 @@ if __name__ == '__main__':
     color = 'black'
     main()
 
-    k = 2.0
-    color = 'blue'
-    main()
+    # k = 2.0
+    # color = 'blue'
+    # main()
 
-    k = 4.0
-    color = 'cyan'
-    main()
+    # k = 4.0
+    # color = 'cyan'
+    # main()
 
-    k = 6.0
-    color = 'limegreen'
-    main()
+    # k = 6.0
+    # color = 'limegreen'
+    # main()
 
-    k = 8.0
-    color = 'pink'
-    main()
+    # k = 8.0
+    # color = 'pink'
+    # main()
 
-    k = 10.0
-    color = 'red'
-    main()
+    # k = 10.0
+    # color = 'red'
+    # main()
 
     # Save out plots as png files
     # plt.savefig('images/stanley_lane_change_{}.png'.format(target_speed))
