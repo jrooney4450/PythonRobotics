@@ -162,10 +162,10 @@ def calc_next_index(state, cx, cy, idx_now, sta_before):
     b = np.array([fx - cx[idx_next], fy - cy[idx_next]]) 
 
     # Find angle between robot state
-    angle = np.arccos(np.dot(t, b) / (np.linalg.norm(t) * np.linalg.norm(b)))
+    theta = np.arccos(np.dot(t, b) / (np.linalg.norm(t) * np.linalg.norm(b)))
 
     # The waypoint will increment once the vehicle passes the normal vector
-    if angle < (np.pi/2):
+    if theta < (np.pi/2):
         idx_now += 1
 
     return idx_now, e_ct, sta_inc, sta_before
@@ -196,12 +196,14 @@ def getRoadPath():
 def main():
     """Plot an example of Stanley steering control on a cubic spline."""
     print("Starting main loop with k={}".format(k))
-    state = State(x=0.0, y=0.5, yaw=0.0, v=0.0)
+    state = State(x=0.0, y=0.5, yaw=0.0, v=target_speed)
 
-    ### PICK PATH HERE! ###
-    # ax, ay, course_type = getLaneChange()
-    # ax, ay, course_type = getFigureEight()
-    ax, ay, course_type = getRoadPath()
+    if LANE_CHANGE:
+        ax, ay, course_type = getLaneChange()
+    elif FIGURE_EIGHT:
+        ax, ay, course_type = getFigureEight()
+    elif ROAD:
+        ax, ay, course_type = getRoadPath()
 
     cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=ds)
@@ -247,25 +249,23 @@ def main():
             plt.plot(cx[idx_now], cy[idx_now], "xg", label="target")
             plt.axis("equal")
             plt.grid(True)
-            plt.title("Speed[km/h]:" + str(state.v * 3.6)[:4])
+            plt.title("Speed[m/s]:" + str(state.v)[:4])
             plt.pause(0.0001)
 
     assert idx_last >= idx_now, "Cannot reach goal"
 
     if show_plots:
-        # # Plot course and car path
-        # plt.figure(1)
-        # # plt.plot(cx, cy, "-r", label='course')
-        # # plt.scatter(ax, ay, c="k", marker='x', s=0.9)
-        # # plt.plot(x, y, "-b", label='trajectory')
-        # plt.legend()
-        # plt.xlabel("x[m]")
-        # plt.ylabel("y[m]")
-        # plt.title("{}".format(course_type))
-        # plt.axis("equal")
-        # plt.grid(True)
-
-
+        # Plot course and car path
+        plt.figure(1)
+        plt.plot(cx, cy, "-r", label='course')
+        # plt.scatter(ax, ay, c="k", marker='x', s=0.9)
+        plt.plot(x, y, "-b", label='trajectory')
+        plt.legend()
+        plt.xlabel("x[m]")
+        plt.ylabel("y[m]")
+        plt.title("{}".format(course_type))
+        plt.axis("equal")
+        plt.grid(True)
 
         # Plot relevant errors
         plt.figure(0)
@@ -279,43 +279,51 @@ def main():
 
 if __name__ == '__main__':
     Kp = 1.0                      # speed proportional gain
-    dt = 0.01                     # [s] Time difference
+    dt = 0.02                     # [s] Time difference
     L = 2.9                       # [m] Wheel base of vehicle
     max_steer = np.radians(30.0)  # [rad] max steering angle
-    show_animation = False        # Turn on animation
-    show_plots = True             # Turn on course and error plots
-    ds = 5                        # [m] Segment length for the cublic spline planner
-
+    ds = 1                        # [m] Segment length for the cublic spline planner
     target_speed = 20.0           # [m/s] Speed reference
     
-    # Iterate through set of steering gains and plot cross-track error vs. station
+    show_animation = False        # Turn on animation
+    show_plots = True             # Turn on course and error plots
+
+    ### CHOOSE PATH HERE ###
+    LANE_CHANGE = True
+    FIGURE_EIGHT = False
+    ROAD = False
+
+    ### CHOOSE GAINS HERE ###
     k = 1.0
     color = 'black'
     main()
 
-    # k = 2.0
-    # color = 'blue'
-    # main()
+    k = 2.0
+    color = 'blue'
+    main()
 
-    # k = 4.0
-    # color = 'cyan'
-    # main()
+    k = 4.0
+    color = 'cyan'
+    main()
 
-    # k = 6.0
-    # color = 'limegreen'
-    # main()
+    k = 6.0
+    color = 'limegreen'
+    main()
 
-    # k = 8.0
-    # color = 'pink'
-    # main()
+    k = 8.0
+    color = 'pink'
+    main()
 
-    # k = 10.0
-    # color = 'red'
-    # main()
+    k = 10.0
+    color = 'red'
+    main()
 
     # Save out plots as png files
-    # plt.savefig('images/stanley_lane_change_{}.png'.format(target_speed))
-    # plt.savefig('images/stanley_figure_eight_{}.png'.format(target_speed))
-    # plt.savefig('images/stanley_road_{}.png'.format(target_speed))
+    if LANE_CHANGE:
+        plt.savefig('images/stanley_lane_change_{}.png'.format(int(target_speed)))
+    elif FIGURE_EIGHT:
+        plt.savefig('images/stanley_figure_eight_{}.png'.format(int(target_speed)))
+    elif ROAD:
+        plt.savefig('images/stanley_road_{}.png'.format(int(target_speed)))
     plt.legend(loc="best")
     plt.show()
