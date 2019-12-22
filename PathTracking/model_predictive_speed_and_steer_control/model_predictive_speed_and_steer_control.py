@@ -328,7 +328,7 @@ def linear_mpc_control(xref, xbar, x0, dref):
         odelta = get_nparray_from_matrix(u.value[1, :])
 
     else:
-        print("Error: Cannot solve mpc..")
+        print("Error: Cannot solve mpc..")z
         oa, odelta, ox, oy, oyaw, ov = None, None, None, None, None, None
 
     return oa, odelta, ox, oy, oyaw, ov
